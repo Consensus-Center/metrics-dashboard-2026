@@ -2,10 +2,10 @@
 
 /* Consensus Center — Transparency Dashboard
  * Ported from the Retool React app (frontend/App.tsx) to a standalone Next.js
- * client component. Live data is fetched from /api/dashboard, which queries the
- * cc_* tables in the Retool/Neon Postgres database. The constants below remain
- * as an embedded fallback so the dashboard still renders if the API is
- * unavailable.
+ * client component. All data is fetched live from /api/dashboard, which queries
+ * the cc_* tables in the Retool/Neon Postgres database. There is no embedded
+ * fallback: while the request is in flight (or if it fails) a status screen is
+ * shown instead.
  */
 import { createContext, useContext, useEffect } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
@@ -21,88 +21,16 @@ import {
   BatteryMedium, Briefcase, Activity, Lock, ShieldCheck,
 } from 'lucide-react'
 
-/* ----------------------------- data ----------------------------- */
+/* ----------------------------- types ----------------------------- */
 type Metric = {
   id: string; section: string; metric: string; value: number; value_display: string
   status: string; md: 'Yes' | 'No'; public: 'Yes' | 'No'; def: string; icon: string; trend: string | null
 }
-const METRICS: Metric[] = [
-  { id: 'm01', section: '1.a', metric: 'Waitlist size', value: 703, value_display: '703', status: 'Live', md: 'No', public: 'Yes', def: 'People on the pre-launch waitlist', icon: 'users', trend: 'waitlist' },
-  { id: 'm02', section: '1.a', metric: 'Beta participants', value: 60, value_display: '60', status: 'Beta', md: 'No', public: 'Yes', def: 'Active beta cohort, non-paying', icon: 'flask', trend: null },
-  { id: 'm03', section: '1.a', metric: 'Active paying members', value: 0, value_display: '0', status: 'Pre-launch', md: 'No', public: 'Yes', def: 'Currently subscribed paying members', icon: 'badge-check', trend: 'members' },
-  { id: 'm04', section: '1.a', metric: 'MRR', value: 0, value_display: '$0', status: 'Pre-launch', md: 'No', public: 'Yes', def: 'Monthly recurring revenue (honest: $0 pre-launch)', icon: 'dollar', trend: 'mrr' },
-  { id: 'm05', section: '1.a', metric: 'ARR', value: 0, value_display: '$0', status: 'Pre-launch', md: 'No', public: 'Yes', def: 'Annual recurring revenue', icon: 'trending-up', trend: null },
-  { id: 'm06', section: '1.a', metric: 'Beta to paid conversion', value: 35, value_display: '35% (est.)', status: 'Estimate', md: 'No', public: 'Yes', def: 'Estimated conversion; not yet observed', icon: 'percent', trend: null },
-  { id: 'm07', section: '1.b', metric: 'Members served (cumulative)', value: 60, value_display: '60', status: 'Live', md: 'No', public: 'Yes', def: 'All members ever onboarded', icon: 'users', trend: null },
-  { id: 'm08', section: '1.b', metric: 'Credentials issued', value: 60, value_display: '60', status: 'Live', md: 'No', public: 'Yes', def: 'Certified biological credentials issued', icon: 'award', trend: null },
-  { id: 'm09', section: '1.b', metric: 'Cities active', value: 3, value_display: '3', status: 'Live', md: 'No', public: 'Yes', def: 'Cali, Bogota, Medellin', icon: 'map-pin', trend: null },
-  { id: 'm10', section: '1.b', metric: 'Target population reached', value: 68, value_display: '68%', status: 'Aggregate', md: 'No', public: 'Yes', def: 'Share from under-represented groups (aggregate)', icon: 'target', trend: null },
-  { id: 'm11', section: '1.b', metric: 'Pathway: Derecho a la Salud', value: 46, value_display: '46%', status: 'Aggregate', md: 'No', public: 'Yes', def: 'Share of members via equity pathway', icon: 'pie', trend: null },
-  { id: 'm12', section: '1.b', metric: 'Pathway: Longevity Pass', value: 31, value_display: '31%', status: 'Aggregate', md: 'No', public: 'Yes', def: 'Share via premium pathway', icon: 'pie', trend: null },
-  { id: 'm13', section: '1.b', metric: 'Pathway: Acceso Raiz', value: 23, value_display: '23%', status: 'Aggregate', md: 'No', public: 'Yes', def: 'Share via ancestry pathway', icon: 'pie', trend: null },
-  { id: 'm14', section: '1.c', metric: 'Active operators', value: 8, value_display: '8', status: 'Live', md: 'No', public: 'Yes', def: 'Licensed physician operators live', icon: 'stethoscope', trend: 'operators' },
-  { id: 'm15', section: '1.c', metric: 'Members per operator', value: 7.5, value_display: '7.5', status: 'Periodic', md: 'No', public: 'Yes', def: 'Average member load per operator', icon: 'divide', trend: null },
-  { id: 'm16', section: '1.c', metric: 'Operator earnings distributed', value: 0, value_display: '$0', status: 'Pre-launch', md: 'No', public: 'Yes', def: 'Total paid to operators', icon: 'dollar', trend: null },
-  { id: 'm17', section: '1.c', metric: 'Institutional relationships', value: 17, value_display: '17+', status: 'Early', md: 'No', public: 'Yes', def: 'Early-stage institutional relationships', icon: 'building', trend: null },
-  { id: 'm18', section: '1.d', metric: 'Panels processed', value: 112, value_display: '112', status: 'Live', md: 'Yes', public: 'Yes', def: '75-biomarker panels run (aggregate)', icon: 'flask', trend: 'panels' },
-  { id: 'm19', section: '1.d', metric: 'Interpretations delivered', value: 112, value_display: '112', status: 'Live', md: 'Yes', public: 'Yes', def: 'Engine interpretations, clinician-reviewed', icon: 'file-text', trend: null },
-  { id: 'm20', section: '1.d', metric: 'Clinician review rate', value: 100, value_display: '100%', status: 'Live', md: 'Yes', public: 'Yes', def: 'Share of interpretations clinician-reviewed (target 100%)', icon: 'check-circle', trend: null },
-  { id: 'm21', section: '1.d', metric: 'Calibrations active', value: 4, value_display: '4', status: 'Periodic', md: 'Yes', public: 'Yes', def: 'Duffy, APOL1, HbA1c, Vitamin D', icon: 'sliders', trend: null },
-  { id: 'm22', section: '1.d', metric: 'Calibration coverage', value: 61, value_display: '61%', status: 'Aggregate', md: 'Yes', public: 'Yes', def: 'Share of interpretations using a calibration', icon: 'layers', trend: null },
-  { id: 'm23', section: '1.d', metric: 'Safety escalations surfaced', value: 3, value_display: '3', status: 'Aggregate', md: 'Yes', public: 'Yes', def: 'CRITICAL/ACTION states surfaced (aggregate)', icon: 'alert-triangle', trend: null },
-  { id: 'm24', section: '1.d', metric: 'Adverse events tracked', value: 0, value_display: '0', status: 'Aggregate', md: 'Yes', public: 'Yes', def: 'Reported and resolved (aggregate)', icon: 'shield', trend: null },
-  { id: 'm25', section: '1.e', metric: 'CC contribution per member-year', value: 101.14, value_display: '$101', status: 'Modeled', md: 'No', public: 'Yes', def: 'From unit economics model', icon: 'dollar', trend: null },
-  { id: 'm26', section: '1.e', metric: 'LTV / CAC', value: 4.21, value_display: '4.21x', status: 'Modeled', md: 'No', public: 'Yes', def: 'Lifetime value over CAC (target ≥ 3.0x)', icon: 'trending-up', trend: null },
-  { id: 'm27', section: '1.e', metric: 'CAC payback', value: 4.7, value_display: '4.7 mo', status: 'Modeled', md: 'No', public: 'Yes', def: 'Months to recover CAC (target ≤ 12)', icon: 'clock', trend: null },
-  { id: 'm28', section: '1.e', metric: 'Gross margin', value: 56, value_display: '56%', status: 'Modeled', md: 'No', public: 'Yes', def: 'Blended contribution margin (modeled)', icon: 'percent', trend: null },
-  { id: 'm29', section: '1.e', metric: 'Monthly burn', value: 4000, value_display: '$4.0K', status: 'Live', md: 'No', public: 'No', def: 'Monthly cash burn (investor view only)', icon: 'flame', trend: 'burn' },
-  { id: 'm30', section: '1.e', metric: 'Runway (post-raise)', value: 37.9, value_display: '37.9 mo', status: 'Modeled', md: 'No', public: 'No', def: 'Months of runway after raise (investor view only)', icon: 'battery', trend: null },
-  { id: 'm31', section: '1.e', metric: 'Round size (pre-seed SAFE)', value: 500000, value_display: '$500K', status: 'Fixed', md: 'No', public: 'No', def: 'Pre-seed SAFE, $5M post-money cap (investor)', icon: 'briefcase', trend: null },
-]
-const SECTIONS = [
-  { section: '1.a', name: 'Membership & Revenue Base', subtitle: 'The recurring base that compounds — members and revenue, not tokens', world: 'Tokenomics / circulating supply', accent: '#3e8b9e' },
-  { section: '1.b', name: 'Members & Access', subtitle: 'How many people the system actually reaches and serves', world: 'User grants / wallets', accent: '#c8843c' },
-  { section: '1.c', name: 'Operator Network', subtitle: 'Health of the distributed Longevity Lab operator layer', world: 'Operator rewards', accent: '#5db4c7' },
-  { section: '1.d', name: 'Clinical Activity & Integrity', subtitle: 'Proof the clinical product is used AND safe — MD-reviewed, aggregate', world: 'Token stats / holders & transfers', accent: '#3f9d77' },
-  { section: '1.e', name: 'Unit Economics & Financial Health', subtitle: 'The financial engine from the unit-economics model', world: 'DEX volume / market activity', accent: '#c98a3c' },
-]
-const HISTORY = [
-  { m: "Nov '24", waitlist: 12, members: 5, operators: 2, panels: 0, burn: 3500 },
-  { m: "Dec '24", waitlist: 18, members: 8, operators: 2, panels: 0, burn: 3500 },
-  { m: "Jan '25", waitlist: 25, members: 10, operators: 3, panels: 0, burn: 3800 },
-  { m: "Feb '25", waitlist: 31, members: 12, operators: 3, panels: 0, burn: 3800 },
-  { m: "Mar '25", waitlist: 40, members: 15, operators: 4, panels: 4, burn: 4000 },
-  { m: "Apr '25", waitlist: 52, members: 18, operators: 4, panels: 9, burn: 4000 },
-  { m: "May '25", waitlist: 61, members: 22, operators: 5, panels: 16, burn: 4000 },
-  { m: "Jun '25", waitlist: 70, members: 26, operators: 5, panels: 24, burn: 4000 },
-  { m: "Jul '25", waitlist: 88, members: 30, operators: 5, panels: 33, burn: 4000 },
-  { m: "Aug '25", waitlist: 104, members: 35, operators: 6, panels: 44, burn: 4000 },
-  { m: "Sep '25", waitlist: 140, members: 40, operators: 6, panels: 55, burn: 4000 },
-  { m: "Oct '25", waitlist: 180, members: 45, operators: 6, panels: 67, burn: 4000 },
-  { m: "Nov '25", waitlist: 230, members: 48, operators: 7, panels: 78, burn: 4000 },
-  { m: "Dec '25", waitlist: 290, members: 52, operators: 7, panels: 88, burn: 4000 },
-  { m: "Jan '26", waitlist: 360, members: 55, operators: 7, panels: 95, burn: 4000 },
-  { m: "Feb '26", waitlist: 440, members: 57, operators: 8, panels: 101, burn: 4000 },
-  { m: "Mar '26", waitlist: 520, members: 58, operators: 8, panels: 106, burn: 4000 },
-  { m: "Apr '26", waitlist: 600, members: 59, operators: 8, panels: 109, burn: 4000 },
-  { m: "May '26", waitlist: 650, members: 60, operators: 8, panels: 111, burn: 4000 },
-  { m: "Jun '26", waitlist: 703, members: 60, operators: 8, panels: 112, burn: 4000 },
-]
-const OPERATORS = [
-  { id: 'OP-01', city: 'Cali', status: 'Active', members: 11, joined: 'Nov 2024', specialty: 'Internal medicine' },
-  { id: 'OP-02', city: 'Cali', status: 'Active', members: 9, joined: 'Jan 2025', specialty: 'Family medicine' },
-  { id: 'OP-03', city: 'Bogotá', status: 'Active', members: 8, joined: 'Feb 2025', specialty: 'Endocrinology' },
-  { id: 'OP-04', city: 'Bogotá', status: 'Active', members: 7, joined: 'Apr 2025', specialty: 'General practice' },
-  { id: 'OP-05', city: 'Medellín', status: 'Active', members: 6, joined: 'May 2025', specialty: 'Internal medicine' },
-  { id: 'OP-06', city: 'Medellín', status: 'Active', members: 5, joined: 'Jul 2025', specialty: 'Preventive medicine' },
-  { id: 'OP-07', city: 'Cali', status: 'Active', members: 4, joined: 'Sep 2025', specialty: 'Family medicine' },
-  { id: 'OP-08', city: 'Bogotá', status: 'Active', members: 10, joined: 'Nov 2025', specialty: 'Longevity / functional' },
-]
 
 /* ----------- live-data context (Sparkline & KpiCard read from here) ----------- */
 type HistoryRow = { m: string; waitlist: number; members: number; operators: number; panels: number; burn: number }
 type DashCtxType = { metrics: Metric[]; history: HistoryRow[] }
-const DashCtx = createContext<DashCtxType>({ metrics: METRICS, history: HISTORY })
+const DashCtx = createContext<DashCtxType>({ metrics: [], history: [] })
 
 /* --------------------------- design tokens --------------------------- */
 const C = {
@@ -136,6 +64,100 @@ function pillStyle(status: string): CSSProperties {
 }
 
 /* ------------------------------ pieces ------------------------------ */
+function StatusScreen({ title, detail, tone = 'neutral' }: { title: string; detail: string; tone?: 'neutral' | 'error' }) {
+  return (
+    <div style={{ fontFamily: FONT, background: C.g50, color: C.g800, minHeight: '100vh', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+      <div style={{ background: '#fff', border: `1px solid ${C.border}`, borderRadius: C.radius, boxShadow: C.shadow, padding: '28px 32px', maxWidth: 440, textAlign: 'center' }}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: tone === 'error' ? '#B42318' : C.g900 }}>{title}</div>
+        <div style={{ fontSize: 13, color: C.g500, fontWeight: 500, marginTop: 8, lineHeight: 1.5 }}>{detail}</div>
+      </div>
+    </div>
+  )
+}
+function Skel({ w = '100%', h = 12, r = 8, style }: { w?: number | string; h?: number | string; r?: number; style?: CSSProperties }) {
+  return <div className="cc-skel" style={{ width: w, height: h, borderRadius: r, flexShrink: 0, ...style }} />
+}
+function SkelKpi() {
+  return (
+    <div style={{ background: '#fff', border: `1px solid ${C.border}`, borderRadius: C.radius, boxShadow: C.shadow, padding: '18px 18px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Skel w={38} h={38} r={10} />
+        <Skel w={48} h={18} r={999} />
+      </div>
+      <Skel w="55%" h={28} style={{ marginTop: 4 }} />
+      <Skel w="70%" h={13} />
+      <Skel h={34} r={6} style={{ marginTop: 2 }} />
+    </div>
+  )
+}
+function SkelTile() {
+  return (
+    <div style={{ background: '#fff', border: `1px solid ${C.border}`, borderRadius: C.radius, boxShadow: C.shadow, padding: '16px 16px 15px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <Skel w={32} h={32} r={9} />
+        <Skel w="40%" h={22} />
+      </div>
+      <Skel w="80%" h={13} />
+      <Skel w="95%" h={11} />
+      <Skel w={64} h={18} r={999} style={{ marginTop: 4 }} />
+    </div>
+  )
+}
+function DashboardSkeleton() {
+  return (
+    <div aria-busy="true" aria-label="Loading dashboard" style={{ fontFamily: FONT, background: C.g50, color: C.g800, minHeight: '100vh', width: '100%', overflowX: 'hidden' }}>
+      <div style={{ maxWidth: 1240, margin: '0 auto', padding: '32px 28px 64px' }}>
+        {/* header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16, paddingBottom: 28, borderBottom: `1px solid ${C.border}`, marginBottom: 32 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <Skel w={46} h={46} r={12} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <Skel w={180} h={20} />
+              <Skel w={130} h={13} />
+            </div>
+          </div>
+          <Skel w={230} h={38} r={999} />
+        </div>
+
+        {/* KPI hero */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0,1fr))', gap: 16 }} className="cc-kpis">
+          {Array.from({ length: 5 }).map((_, i) => <SkelKpi key={i} />)}
+        </div>
+
+        {/* growth chart */}
+        <div style={{ background: '#fff', border: `1px solid ${C.border}`, borderRadius: C.radius, boxShadow: C.shadow, padding: 20, marginTop: 24 }}>
+          <Skel w={260} h={16} />
+          <Skel w="55%" h={12} style={{ marginTop: 8 }} />
+          <Skel h={300} r={10} style={{ marginTop: 18 }} />
+        </div>
+
+        {/* a section of tiles */}
+        <div style={{ margin: '44px 0 18px', display: 'flex', alignItems: 'center', gap: 14 }}>
+          <Skel w={5} h={42} r={3} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <Skel w={220} h={18} />
+            <Skel w={320} h={13} />
+          </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 16 }} className="cc-tiles">
+          {Array.from({ length: 4 }).map((_, i) => <SkelTile key={i} />)}
+        </div>
+      </div>
+
+      <style>{`
+        .cc-skel {
+          background: linear-gradient(90deg, #ECEEF1 25%, #F5F6F8 37%, #ECEEF1 63%);
+          background-size: 400% 100%;
+          animation: cc-shimmer 1.4s ease-in-out infinite;
+        }
+        @keyframes cc-shimmer { 0% { background-position: 100% 50% } 100% { background-position: 0 50% } }
+        @media (prefers-reduced-motion: reduce) { .cc-skel { animation: none } }
+        @media (max-width: 1080px){ .cc-kpis{grid-template-columns:repeat(3,minmax(0,1fr)) !important} .cc-tiles{grid-template-columns:repeat(2,minmax(0,1fr)) !important} }
+        @media (max-width: 680px){ .cc-kpis,.cc-tiles{grid-template-columns:1fr !important} }
+      `}</style>
+    </div>
+  )
+}
 function StatusPill({ status }: { status: string }) {
   return <span style={pillStyle(status)}>{status}</span>
 }
@@ -157,7 +179,8 @@ function Sparkline({ field }: { field: string }) {
 }
 function KpiCard({ id, label }: { id: string; label: string }) {
   const { metrics } = useContext(DashCtx)
-  const m = metrics.find((x) => x.id === id)!
+  const m = metrics.find((x) => x.id === id)
+  if (!m) return null
   const sparkField = id === 'm07' ? 'members' : m.trend
   return (
     <div style={{ background: '#fff', border: `1px solid ${C.border}`, borderRadius: C.radius, boxShadow: C.shadow, padding: '18px 18px 14px', display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0, overflow: 'hidden' }}>
@@ -211,7 +234,7 @@ function Legend({ items }: { items: { c: string; t: string }[] }) {
 
 /* ------------------------------- app ------------------------------- */
 export default function Dashboard() {
-  const { data, trigger } = useGetDashboardData()
+  const { data, error, trigger } = useGetDashboardData()
 
   useEffect(() => {
     const id = 'pjs-font'
@@ -230,10 +253,10 @@ export default function Dashboard() {
     value_display: r.value_display, status: r.status,
     md: r.md_reviewed as 'Yes' | 'No', public: r.public as 'Yes' | 'No',
     def: r.definition, icon: r.icon, trend: r.trend_key ?? null,
-  })) ?? METRICS
+  })) ?? []
 
   type Section = { section: string; name: string; subtitle: string; world: string; accent: string }
-  const sections: Section[] = ((data as any)?.sections ?? SECTIONS).map((r: any) => ({
+  const sections: Section[] = ((data as any)?.sections ?? []).map((r: any) => ({
     section: r.section as string, name: r.name as string, subtitle: r.subtitle as string,
     world: (r.world_equivalent ?? r.world) as string, accent: (r.accent_color ?? r.accent) as string,
   }))
@@ -241,19 +264,30 @@ export default function Dashboard() {
   const history: HistoryRow[] = (data as any)?.history?.map((r: any) => ({
     m: r.month, waitlist: Number(r.waitlist), members: Number(r.members),
     operators: Number(r.operators), panels: Number(r.panels), burn: Number(r.burn),
-  })) ?? HISTORY
+  })) ?? []
 
   type Operator = { id: string; city: string; status: string; members: number; joined: string; specialty: string }
-  const operators: Operator[] = ((data as any)?.operators ?? OPERATORS).map((r: any) => ({
+  const operators: Operator[] = ((data as any)?.operators ?? []).map((r: any) => ({
     id: (r.operator_id ?? r.id) as string, city: r.city as string, status: r.status as string,
     members: Number(r.members_served ?? r.members),
     joined: (r.joined_month ?? r.joined) as string, specialty: r.specialty as string,
   }))
 
+  // No embedded fallback — show a skeleton while loading, a status card on error.
+  if (!data) {
+    if (error) {
+      return <StatusScreen tone="error" title="Couldn't load dashboard data" detail="The metrics service is unavailable. Check the database connection, then refresh the page." />
+    }
+    return <DashboardSkeleton />
+  }
+  if (metrics.length === 0) {
+    return <StatusScreen title="No metrics available" detail="The database returned no metrics for this dashboard." />
+  }
+
   const cities: Record<string, number> = {}
   operators.forEach((o) => { cities[o.city] = (cities[o.city] || 0) + 1 })
   const cityData = Object.keys(cities).map((c) => ({ name: c, value: cities[c] }))
-  const pathways = ['m11', 'm12', 'm13'].map((pid) => metrics.find((m) => m.id === pid)!)
+  const pathways = ['m11', 'm12', 'm13'].map((pid) => metrics.find((m) => m.id === pid)).filter(Boolean) as Metric[]
   const pathData = pathways.map((m) => ({ name: m.metric.replace('Pathway: ', ''), value: m.value }))
   const opSorted = [...operators].sort((a, b) => b.members - a.members)
   const axis = { fontSize: 11, fontFamily: FONT, fill: C.g500 }
@@ -357,7 +391,7 @@ export default function Dashboard() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: 16, marginTop: 16 }} className="cc-2col">
                   <Card>
                     <h3 style={{ fontSize: 15, fontWeight: 700, color: C.g900, margin: 0 }}>Operators by city</h3>
-                    <div style={{ fontSize: 12.5, color: C.g500, fontWeight: 500, marginTop: 2 }}>8 active operators · Cali, Bogotá, Medellín</div>
+                    <div style={{ fontSize: 12.5, color: C.g500, fontWeight: 500, marginTop: 2 }}>{operators.length} active operators · Cali, Bogotá, Medellín</div>
                     <Legend items={cityData.map((c, i) => ({ c: PALETTE[i], t: `${c.name} (${c.value})` }))} />
                     <div style={{ width: '100%', height: 230 }}>
                       <ResponsiveContainer width="100%" height="100%">
@@ -435,7 +469,7 @@ export default function Dashboard() {
                 <td style={{ padding: '12px 14px', borderBottom: `1px solid ${C.g100}`, fontWeight: 500, color: C.g700 }}>{o.specialty}</td>
                 <td style={{ padding: '12px 14px', borderBottom: `1px solid ${C.g100}`, fontWeight: 700, color: C.g900 }}>{o.members}</td>
                 <td style={{ padding: '12px 14px', borderBottom: `1px solid ${C.g100}`, fontWeight: 500, color: C.g700 }}>{o.joined}</td>
-                <td style={{ padding: '12px 14px', borderBottom: `1px solid ${C.g100}` }}><StatusPill status="Live" /></td>
+                <td style={{ padding: '12px 14px', borderBottom: `1px solid ${C.g100}` }}><StatusPill status={o.status} /></td>
               </tr>
             ))}</tbody>
           </table>
